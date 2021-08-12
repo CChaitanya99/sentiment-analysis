@@ -1,0 +1,143 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+col_names=["target", "id", "date", "flag", "user", "text"]
+data_first_50k= pd.read_csv("training.1600000.processed.csv", header=None, encoding='ISO-8859-1', names=col_names, nrows=50000)
+data_first_50k.head()
+
+col_names=["target", "id", "date", "flag", "user", "text"]
+data_last_50k=pd.read_csv("training.1600000.processed.csv", header=None, encoding='ISO-8859-1', names=col_names, skiprows=1550000)
+data_last_50k.head(5)
+
+data_first_50k['target'].value_counts(), data_last_50k['target'].value_counts()
+
+data=pd.concat([data_first_50k,data_last_50k],axis=0)
+data.shape
+data.head()
+
+data.reset_index(inplace=True)
+
+import numpy as np
+from sklearn.preprocessing import LabelEncoder
+y=data['target']
+le=LabelEncoder()
+y=le.fit_transform(y)
+type(y)
+np.unique(y, return_counts=True)
+
+import string
+import re
+import nltk
+nltk.download('stopwords')
+nltk.download('wordnet')
+from nltk.corpus import stopwords
+from nltk.stem import WordNetLemmatizer
+
+
+lemma=WordNetLemmatizer()
+corpus=[]
+
+for i in range(0, len(data)):
+    tweet=re.sub(r'\$\w*', '', data['text'][i])
+    tweet=re.sub(r'^RT[\s]+', '', tweet)
+    tweet=re.sub(r'https?:\/\/.*[\r\n]*', '', tweet)
+    tweet=re.sub(r'#', '', tweet)
+    tokenizer=TweetTokenizer(preserve_case=False, strip_handles=True, reduce_len=True)
+    tweet=tokenizer.tokenize(tweet)
+    
+    tweet=[lemma.lemmatize(word) for word in tweet if (word not in stopwords.words('english') and word not in string.punctuation)]
+    tweet=' '.join(tweet)
+    corpus.append(tweet)
+    
+    import matplotlib.pyplot as plt
+!pip install wordcloud
+from wordcloud import WordCloud, STOPWORDS
+
+%matplotlib inline
+
+corpus_df=pd.DataFrame(corpus,columns=['Corpus'])
+corpus_df[:5]
+
+wordcloud=WordCloud(background_color="black",width=1600, height=800, random_state=0, collocations=False, stopwords=STOPWORDS).generate(' '.join(corpus_df['Corpus'].tolist()))
+
+plt.figure(figsize=(20,10), facecolor='k')
+plt.imshow(wordcloud)
+
+def plot_confusion_matrix(cm, classes, normalize=False, title='Confusion matrix', cmap=plt.cm.RdBu):
+    """
+    Source: 
+         http://scikit-learn.org/stable/auto_examples/model_selection/plot_confusion_matrix.html
+    
+    Input:
+         cm: confusion matrix
+         classes: output classes name
+         normalize: normalization can be applied by setting `normalize=True`
+    
+    Output:
+         This function prints and plots the confusion matrix.
+    """
+    plt.figure(figsize=(20,10))
+    plt.imshow(cm, interpolation='nearest', cmap=cmap)
+    plt.title(title)
+    plt.colorbar()
+    tick_marks = np.arange(len(classes))
+    plt.xticks(tick_marks, classes, rotation=45)
+    plt.yticks(tick_marks, classes)
+
+    if normalize:
+        cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+        print("Normalized confusion matrix")
+    else:
+        print('Confusion matrix, without normalization')
+
+    thresh = cm.max() / 2.
+    for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
+        plt.text(j, i, cm[i, j],
+                 horizontalalignment="center",
+                 color="green" if cm[i, j] > thresh else "black")
+
+    plt.tight_layout()
+    plt.ylabel('True label')
+    plt.xlabel('Predicted label')
+    
+    from tensorflow.keras.preprocessing.text import one_hot
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Embedding, LSTM, Bidirectional, Dense, Dropout
+
+vocabulary_size=10000
+onehot_representation=[one_hot(words, vocabulary_size) for words in corpus]
+onehot_representation[:20]
+
+sentence_length=15
+embedded_documents=pad_sequences(onehot_representation, padding='pre', maxlen=sentence_length)
+print(embedded_documents[:20])
+
+dimension=45
+model_lstm=Sequential()
+model_lstm.add(Embedding(vocabulary_size, dimension, input_length=sentence_length))
+model_lstm.add(LSTM(100))
+model_lstm.add(Dense(1, activation='sigmoid'))
+model_lstm.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+print(model_lstm.summary())
+
+X=np.array(embedded_documents)
+y=np.array(y)
+
+from sklearn.model_selection import train_test_split
+
+X_train, X_test, y_train, y_test=train_test_split(X, y, test_size=0.20, random_state=0)
+model_lstm.fit(X_train, y_train, validation_data=(X_test,y_test), epochs=5, batch_size=32)
+
+pred_lstm=model_lstm.predict(X_test)
+
+from sklearn.metrics import confusion_matrix, classification_report
+from nltk.tokenize import TweetTokenizer
+
+cm=confusion_matrix(y_test, pred_lstm.round())
+
+import itertools
+plot_confusion_matrix(cm, classes=['Negative', 'Positive'])
+
+print(classification_report(y_test, pred_lstm.round()))
